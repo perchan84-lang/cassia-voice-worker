@@ -26,7 +26,7 @@ client.on('ready', async () => {
     console.log(`[🤖] Voice Worker online som ${client.user.tag}`);
 
     // Byt ut texten nedan mot ditt riktiga kanal-ID
-    const TARGET_CHANNEL_ID = 'KLISTRA_IN_DITT_KANAL_ID_HÄR'; 
+    const TARGET_CHANNEL_ID = 'https://discord.com/channels/1505695523594698772/1505695523594698776'; 
     const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
 
     if (channel && channel.isVoiceBased()) {
