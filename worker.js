@@ -22,15 +22,14 @@ client.on('ready', () => {
 });
 
 // Trigger för att ansluta botten till kanalen (t.ex. via ett textkommando "!join")
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
+client.on('ready', async () => {
+    console.log(`[🤖] Voice Worker online som ${client.user.tag}`);
 
-    if (message.content === '!join') {
-        const channel = message.member?.voice.channel;
-        if (!channel) {
-            return message.reply('Du måste sitta i en röstkanal, Sir.');
-        }
+    // Byt ut texten nedan mot ditt riktiga kanal-ID
+    const TARGET_CHANNEL_ID = 'KLISTRA_IN_DITT_KANAL_ID_HÄR'; 
+    const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
 
+    if (channel && channel.isVoiceBased()) {
         const connection = joinVoiceChannel({
             channelId: channel.id,
             guildId: channel.guild.id,
@@ -40,12 +39,11 @@ client.on('messageCreate', async (message) => {
         });
 
         connection.on(VoiceConnectionStatus.Ready, () => {
-            console.log(`[🔊] Ansluten till röstkanalen: ${channel.name}`);
-            message.reply('Jag lyssnar nu live, Sir.');
-            
-            // Starta lyssnar-motorn på anslutningen
+            console.log(`[🔊] Cassia är automatiskt ansluten och väntar i: ${channel.name}`);
             setupVoiceReceiver(connection);
         });
+    } else {
+        console.error('[❌] Kunde inte hitta röstkanalen. Kontrollera ID.');
     }
 });
 
