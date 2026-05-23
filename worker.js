@@ -1,5 +1,5 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType } = require('@discordjs/voice');
+const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
 const prism = require('prism-media');
 const axios = require('axios');
 const { Readable } = require('stream');
@@ -9,24 +9,16 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
     ]
 });
 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
-const SILENCE_TIMEOUT = 2500; // Tid i millisekunder av tystnad innan sändning triggas
+const SILENCE_TIMEOUT = 2500;
+const TARGET_CHANNEL_ID = '1505695523594698776'; 
 
-client.on('ready', () => {
-    console.log(`[🤖] Voice Worker online som ${client.user.tag}`);
-});
-
-// Trigger för att ansluta botten till kanalen (t.ex. via ett textkommando "!join")
 client.on('ready', async () => {
     console.log(`[🤖] Voice Worker online som ${client.user.tag}`);
 
-    // Byt ut texten nedan mot ditt riktiga kanal-ID
-    const TARGET_CHANNEL_ID = '1505695523594698776'; 
     const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
 
     if (channel && channel.isVoiceBased()) {
@@ -39,22 +31,20 @@ client.on('ready', async () => {
         });
 
         connection.on(VoiceConnectionStatus.Ready, () => {
-            console.log(`[🔊] Cassia är automatiskt ansluten och väntar i: ${channel.name}`);
+            console.log(`[🔊] Cassia är ansluten och väntar i: ${channel.name}`);
             setupVoiceReceiver(connection);
         });
     } else {
-        console.error('[❌] Kunde inte hitta röstkanalen. Kontrollera ID.');
+        console.error('[❌] Kunde inte hitta röstkanalen.');
     }
 });
 
 function setupVoiceReceiver(connection) {
     const receiver = connection.receiver;
 
-    // Trigger när en användare börjar prata
     receiver.speaking.on('start', (userId) => {
         console.log(`[🎙️] Användare ${userId} pratar...`);
         
-        // Prenumerera på användarens ljudström (PCM, 48kHz, Stereo)
         const audioStream = receiver.subscribe(userId, {
             end: {
                 behavior: EndBehaviorType.AfterSilence,
@@ -62,7 +52,6 @@ function setupVoiceReceiver(connection) {
             },
         });
 
-        // Avkoda Opus till rå PCM för stabilare hantering och konvertering
         const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2 });
         const pcmChunks = [];
 
@@ -73,41 +62,46 @@ function setupVoiceReceiver(connection) {
         });
 
         decoder.on('end', async () => {
-            console.log(`[🛑] Tystnad detekterad för ${userId}. Processar ljudbuffert...`);
+            console.log(`[🛑] Tystnad detekterad. Processar röstdata...`);
             const buffer = Buffer.concat(pcmChunks);
             
             if (buffer.length < 1000) {
-                console.log('[⚠️] Bufferten för kort, ignorerar (förmodligen bara bakgrundsbrus).');
-                return;
+                return; // Ignorera korta brus
             }
 
-            await sendToN8nSatellit(buffer, userId);
-        });
-
-        decoder.on('error', (err) => {
-            console.error('[❌] Fel i ljud-dekodern:', err);
+            // Skickar ljudet och väntar på svar från n8n (ElevenLabs)
+            await sendToN8nSatellit(buffer, userId, connection);
         });
     });
 }
 
-async function sendToN8nSatellit(pcmBuffer, userId) {
+async function sendToN8nSatellit(pcmBuffer, userId, connection) {
     try {
-        console.log(`[🚀] Skickar ${pcmBuffer.length} bytes röstdata till n8n...`);
+        console.log(`[🚀] Skickar ljud till n8n...`);
         
-        // Vi skickar rå PCM binärt. n8n tar emot det som ett binärt filobjekt.
         const response = await axios.post(N8N_WEBHOOK_URL, pcmBuffer, {
             headers: {
-                'Content-Type': 'application/octet-stream',
-                'X-Discord-User': userId,
-                'X-Audio-Format': 'pcm-48000-stereo'
+                'Content-Type': 'application/octet-stream'
             },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
+            responseType: 'arraybuffer' // Viktigt: Säger åt axios att vi väntar oss en binär ljudfil tillbaka
         });
 
-        console.log('[✅] n8n tog emot ljudströmmen. Svar:', response.data);
+        console.log('[✅] Fick svar från n8n (ElevenLabs). Spelar upp ljudet...');
+        
+        // --- NY LOGIK: SPELA UPP LJUDSVARET ---
+        const audioPlayer = createAudioPlayer();
+        const stream = Readable.from(response.data);
+        const resource = createAudioResource(stream);
+        
+        connection.subscribe(audioPlayer);
+        audioPlayer.play(resource);
+
+        audioPlayer.on(AudioPlayerStatus.Idle, () => {
+            console.log('[🛑] Cassia har pratat klart, väntar på ny input...');
+        });
+
     } catch (error) {
-        console.error('[❌] Misslyckades att leverera röstdata till n8n:', error.message);
+        console.error('[❌] Något gick fel vid anropet till n8n:', error.message);
     }
 }
 
