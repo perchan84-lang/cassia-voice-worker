@@ -42,10 +42,6 @@ client.on('clientReady', async () => {
             selfMute: false
         });
 
-        connection.on('debug', (message) => {
-            console.log(`[🐛 UDP DEBUG] ${message}`);
-        });
-
         connection.on('error', (error) => {
             console.error(`[🚨 UDP ERROR] ${error.message}`);
         });
@@ -54,14 +50,11 @@ client.on('clientReady', async () => {
             console.log(`[🔄] Anslutningsstatus ändrades från ${oldState.status} till ${newState.status}`);
         });
 
-        // --- FIX 1: Lås för dubbla öron ---
         let isEarsAttached = false;
 
         connection.on(VoiceConnectionStatus.Ready, () => {
-            console.log(`[🔊] Cassia är ansluten och väntar i: ${channel.name}`);
-            
-            // Säkerställ att vi bara aktiverar röstmottagaren en enda gång
             if (!isEarsAttached) {
+                console.log(`[🔊] Cassia är ansluten och väntar i: ${channel.name}`);
                 setupVoiceReceiver(connection);
                 isEarsAttached = true;
             }
@@ -95,14 +88,19 @@ function createWavHeader(dataLength) {
 
 function setupVoiceReceiver(connection) {
     const receiver = connection.receiver;
+    
+    // --- FIX: Map för att förhindra flera överlappande inspelningar av samma användare ---
+    const activeStreams = new Map();
 
     receiver.speaking.on('start', (userId) => {
-        // --- FIX 2: Blockera botens egen röst från att spelas in ---
-        if (userId === client.user.id) {
-            return;
-        }
+        // Blockera botens egen röst
+        if (userId === client.user.id) return;
+        
+        // Om vi redan spelar in Pär just nu, ignorera nya "start"-signaler från micken
+        if (activeStreams.has(userId)) return;
 
         console.log(`[🎙️] Användare ${userId} pratar...`);
+        activeStreams.set(userId, true); // Lås kanalen
         
         const audioStream = receiver.subscribe(userId, {
             end: {
@@ -121,12 +119,13 @@ function setupVoiceReceiver(connection) {
         });
 
         decoder.on('end', async () => {
+            // Lås upp kanalen när tystnaden är över
+            activeStreams.delete(userId);
+            
             const pcmBuffer = Buffer.concat(pcmChunks);
             
-            // --- FIX 3: Edge Filtering för transients (knäpp/brus) ---
-            // Högupplöst ljud är ca 192 000 bytes/sekund. 
-            // 60 000 bytes är ca 0.3 sekunder. Allt under detta (knäppningar, hostningar) kastas direkt i papperskorgen.
-            if (pcmBuffer.length < 60000) {
+            // --- FIX: Höjd gräns till 150 000 bytes för att döda fingarknäppningar ---
+            if (pcmBuffer.length < 150000) {
                 console.log(`[🔇] Ljud för kort (${pcmBuffer.length} bytes). Klassas som brus/knäpp och ignoreras.`);
                 return; 
             }
