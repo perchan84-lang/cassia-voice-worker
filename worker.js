@@ -1,9 +1,14 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, AudioPlayerStatus, generateDependencyReport } = require('@discordjs/voice');
 const prism = require('prism-media');
 const axios = require('axios');
 const { Readable } = require('stream');
 require('dotenv').config();
+
+// --- BEROENDERAPPORT: Röntgar containerns ljud- och kryptomotorer ---
+console.log("=== 🛠️ CASSIA VOICE ENGINE DIAGNOSTIK ===");
+console.log(generateDependencyReport());
+console.log("=========================================");
 
 const client = new Client({
     intents: [
@@ -15,6 +20,11 @@ const client = new Client({
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 const SILENCE_TIMEOUT = 2500;
 const TARGET_CHANNEL_ID = '1505695523594698776'; 
+
+// Fånga eventuella dolda fel på hela bot-klienten
+client.on('error', (error) => {
+    console.error(`[🚨 CLIENT ERROR] ${error.message}`);
+});
 
 client.on('ready', async () => {
     console.log(`[🤖] Voice Worker online som ${client.user.tag}`);
@@ -30,7 +40,6 @@ client.on('ready', async () => {
             selfMute: false
         });
 
-        // --- NYA DEBUG-LYSSNARE FÖR ATT SLUTA GISSA ---
         connection.on('debug', (message) => {
             console.log(`[🐛 UDP DEBUG] ${message}`);
         });
@@ -101,7 +110,7 @@ function setupVoiceReceiver(connection) {
             const pcmBuffer = Buffer.concat(pcmChunks);
             
             if (pcmBuffer.length < 1000) {
-                return; // Ignorera korta brus
+                return; 
             }
 
             const wavHeader = createWavHeader(pcmBuffer.length);
