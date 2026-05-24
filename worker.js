@@ -1,3 +1,7 @@
+// --- FIX: Tvingar Node att använda IPv4 för att kringgå Railways IPv6 UDP-blockering ---
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
+
 const { Client, GatewayIntentBits } = require('discord.js');
 const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, AudioPlayerStatus, generateDependencyReport } = require('@discordjs/voice');
 const prism = require('prism-media');
