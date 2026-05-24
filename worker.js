@@ -30,7 +30,15 @@ client.on('ready', async () => {
             selfMute: false
         });
 
-        // Felsökningslogg för nätverksstatus
+        // --- NYA DEBUG-LYSSNARE FÖR ATT SLUTA GISSA ---
+        connection.on('debug', (message) => {
+            console.log(`[🐛 UDP DEBUG] ${message}`);
+        });
+
+        connection.on('error', (error) => {
+            console.error(`[🚨 UDP ERROR] ${error.message}`);
+        });
+
         connection.on('stateChange', (oldState, newState) => {
             console.log(`[🔄] Anslutningsstatus ändrades från ${oldState.status} till ${newState.status}`);
         });
@@ -44,7 +52,6 @@ client.on('ready', async () => {
     }
 });
 
-// Skapar en äkta WAV-header så OpenAI accepterar filen
 function createWavHeader(dataLength) {
     const sampleRate = 48000;
     const numChannels = 2;
@@ -97,7 +104,6 @@ function setupVoiceReceiver(connection) {
                 return; // Ignorera korta brus
             }
 
-            // Slå ihop WAV-headern med ljuddatan
             const wavHeader = createWavHeader(pcmBuffer.length);
             const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
 
@@ -110,7 +116,6 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
     try {
         console.log(`[🚀] Skickar formaterat WAV-ljud till n8n...`);
         
-        // Skickar filen rått men med tydliga etiketter så n8n Webhook förstår
         const response = await axios.post(N8N_WEBHOOK_URL, wavBuffer, {
             headers: {
                 'Content-Type': 'audio/wav',
