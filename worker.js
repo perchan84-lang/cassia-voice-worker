@@ -9,7 +9,6 @@ const axios = require('axios');
 const { Readable } = require('stream');
 require('dotenv').config();
 
-// --- BEROENDERAPPORT: Röntgar containerns ljud- och kryptomotorer ---
 console.log("=== 🛠️ CASSIA VOICE ENGINE DIAGNOSTIK ===");
 console.log(generateDependencyReport());
 console.log("=========================================");
@@ -25,12 +24,10 @@ const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 const SILENCE_TIMEOUT = 2500;
 const TARGET_CHANNEL_ID = '1505695523594698776'; 
 
-// Fånga eventuella dolda fel på hela bot-klienten
 client.on('error', (error) => {
     console.error(`[🚨 CLIENT ERROR] ${error.message}`);
 });
 
-// --- FIX: DeprecationWarning åtgärdad genom att byta till clientReady ---
 client.on('clientReady', async () => {
     console.log(`[🤖] Voice Worker online som ${client.user.tag}`);
 
@@ -57,9 +54,17 @@ client.on('clientReady', async () => {
             console.log(`[🔄] Anslutningsstatus ändrades från ${oldState.status} till ${newState.status}`);
         });
 
+        // --- FIX 1: Lås för dubbla öron ---
+        let isEarsAttached = false;
+
         connection.on(VoiceConnectionStatus.Ready, () => {
             console.log(`[🔊] Cassia är ansluten och väntar i: ${channel.name}`);
-            setupVoiceReceiver(connection);
+            
+            // Säkerställ att vi bara aktiverar röstmottagaren en enda gång
+            if (!isEarsAttached) {
+                setupVoiceReceiver(connection);
+                isEarsAttached = true;
+            }
         });
     } else {
         console.error('[❌] Kunde inte hitta röstkanalen.');
@@ -92,6 +97,11 @@ function setupVoiceReceiver(connection) {
     const receiver = connection.receiver;
 
     receiver.speaking.on('start', (userId) => {
+        // --- FIX 2: Blockera botens egen röst från att spelas in ---
+        if (userId === client.user.id) {
+            return;
+        }
+
         console.log(`[🎙️] Användare ${userId} pratar...`);
         
         const audioStream = receiver.subscribe(userId, {
