@@ -77,18 +77,19 @@ function setupVoiceReceiver(connection) {
 
 async function sendToN8nSatellit(pcmBuffer, userId, connection) {
     try {
-        console.log(`[🚀] Skickar ljud till n8n...`);
+        console.log(`[🚀] Skickar ljud till n8n som en formaterad fil...`);
         
-        const response = await axios.post(N8N_WEBHOOK_URL, pcmBuffer, {
-            headers: {
-                'Content-Type': 'application/octet-stream'
-            },
-            responseType: 'arraybuffer' // Viktigt: Säger åt axios att vi väntar oss en binär ljudfil tillbaka
+        // Packar ljudet som en form-data-fil med etiketten 'data' för att matcha n8n
+        const blob = new Blob([pcmBuffer], { type: 'audio/pcm' });
+        const formData = new FormData();
+        formData.append('data', blob, 'audio.pcm'); 
+        
+        const response = await axios.post(N8N_WEBHOOK_URL, formData, {
+            responseType: 'arraybuffer' 
         });
 
         console.log('[✅] Fick svar från n8n (ElevenLabs). Spelar upp ljudet...');
         
-        // --- NY LOGIK: SPELA UPP LJUDSVARET ---
         const audioPlayer = createAudioPlayer();
         const stream = Readable.from(response.data);
         const resource = createAudioResource(stream);
