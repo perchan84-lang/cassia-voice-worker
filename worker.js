@@ -121,12 +121,17 @@ function setupVoiceReceiver(connection) {
         });
 
         decoder.on('end', async () => {
-            console.log(`[🛑] Tystnad detekterad. Processar röstdata...`);
             const pcmBuffer = Buffer.concat(pcmChunks);
             
-            if (pcmBuffer.length < 1000) {
+            // --- FIX 3: Edge Filtering för transients (knäpp/brus) ---
+            // Högupplöst ljud är ca 192 000 bytes/sekund. 
+            // 60 000 bytes är ca 0.3 sekunder. Allt under detta (knäppningar, hostningar) kastas direkt i papperskorgen.
+            if (pcmBuffer.length < 60000) {
+                console.log(`[🔇] Ljud för kort (${pcmBuffer.length} bytes). Klassas som brus/knäpp och ignoreras.`);
                 return; 
             }
+
+            console.log(`[🛑] Tystnad detekterad. Processar ${pcmBuffer.length} bytes röstdata...`);
 
             const wavHeader = createWavHeader(pcmBuffer.length);
             const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
