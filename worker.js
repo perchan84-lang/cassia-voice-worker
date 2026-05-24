@@ -39,6 +39,29 @@ client.on('ready', async () => {
     }
 });
 
+// Skapar en äkta WAV-header så OpenAI accepterar filen
+function createWavHeader(dataLength) {
+    const sampleRate = 48000;
+    const numChannels = 2;
+    const bitDepth = 16;
+    
+    const header = Buffer.alloc(44);
+    header.write('RIFF', 0);
+    header.writeUInt32LE(36 + dataLength, 4);
+    header.write('WAVE', 8);
+    header.write('fmt ', 12);
+    header.writeUInt32LE(16, 16); 
+    header.writeUInt16LE(1, 20); 
+    header.writeUInt16LE(numChannels, 22);
+    header.writeUInt32LE(sampleRate, 24);
+    header.writeUInt32LE(sampleRate * numChannels * (bitDepth / 8), 28); 
+    header.writeUInt16LE(numChannels * (bitDepth / 8), 32); 
+    header.writeUInt16LE(bitDepth, 34);
+    header.write('data', 36);
+    header.writeUInt32LE(dataLength, 40);
+    return header;
+}
+
 function setupVoiceReceiver(connection) {
     const receiver = connection.receiver;
 
@@ -63,28 +86,31 @@ function setupVoiceReceiver(connection) {
 
         decoder.on('end', async () => {
             console.log(`[🛑] Tystnad detekterad. Processar röstdata...`);
-            const buffer = Buffer.concat(pcmChunks);
+            const pcmBuffer = Buffer.concat(pcmChunks);
             
-            if (buffer.length < 1000) {
+            if (pcmBuffer.length < 1000) {
                 return; // Ignorera korta brus
             }
 
-            // Skickar ljudet och väntar på svar från n8n (ElevenLabs)
-            await sendToN8nSatellit(buffer, userId, connection);
+            // Slå ihop WAV-headern med ljuddatan
+            const wavHeader = createWavHeader(pcmBuffer.length);
+            const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
+
+            await sendToN8nSatellit(wavBuffer, userId, connection);
         });
     });
 }
 
-async function sendToN8nSatellit(pcmBuffer, userId, connection) {
+async function sendToN8nSatellit(wavBuffer, userId, connection) {
     try {
-        console.log(`[🚀] Skickar ljud till n8n som en formaterad fil...`);
+        console.log(`[🚀] Skickar formaterat WAV-ljud till n8n...`);
         
-        // Packar ljudet som en form-data-fil med etiketten 'data' för att matcha n8n
-        const blob = new Blob([pcmBuffer], { type: 'audio/pcm' });
-        const formData = new FormData();
-        formData.append('data', blob, 'audio.pcm'); 
-        
-        const response = await axios.post(N8N_WEBHOOK_URL, formData, {
+        // Skickar filen rått men med tydliga etiketter så n8n Webhook förstår
+        const response = await axios.post(N8N_WEBHOOK_URL, wavBuffer, {
+            headers: {
+                'Content-Type': 'audio/wav',
+                'Content-Disposition': 'attachment; filename="audio.wav"'
+            },
             responseType: 'arraybuffer' 
         });
 
