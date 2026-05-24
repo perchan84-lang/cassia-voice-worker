@@ -1,10 +1,12 @@
 FROM node:18-slim
 
+# Installerar nödvändiga C++-motorer och FFmpeg för Discords ljudhantering
 RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
     build-essential \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -13,8 +15,5 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
-
-ENV PORT=3000
-EXPOSE 3000
 
 CMD ["npm", "start"]
