@@ -26,7 +26,8 @@ client.on('error', (error) => {
     console.error(`[🚨 CLIENT ERROR] ${error.message}`);
 });
 
-client.on('ready', async () => {
+// --- FIX: DeprecationWarning åtgärdad genom att byta till clientReady ---
+client.on('clientReady', async () => {
     console.log(`[🤖] Voice Worker online som ${client.user.tag}`);
 
     const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
