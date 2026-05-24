@@ -30,6 +30,11 @@ client.on('ready', async () => {
             selfMute: false
         });
 
+        // Felsökningslogg för nätverksstatus
+        connection.on('stateChange', (oldState, newState) => {
+            console.log(`[🔄] Anslutningsstatus ändrades från ${oldState.status} till ${newState.status}`);
+        });
+
         connection.on(VoiceConnectionStatus.Ready, () => {
             console.log(`[🔊] Cassia är ansluten och väntar i: ${channel.name}`);
             setupVoiceReceiver(connection);
