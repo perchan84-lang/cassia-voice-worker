@@ -28,7 +28,8 @@ client.on('error', (error) => {
     console.error(`[🚨 CLIENT ERROR] ${error.message}`);
 });
 
-client.on('clientReady', async () => {
+// --- FIX: Ändrat från 'clientReady' till 'ready' för att trigga igång anslutningen korrekt ---
+client.on('ready', async () => {
     console.log(`[🤖] Voice Worker online som ${client.user.tag}`);
 
     const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
@@ -138,7 +139,7 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
     try {
         console.log(`[🚀] Skickar formaterat WAV-ljud till n8n...`);
         
-        // --- KORRIGERING: params har lagts till för att skicka med url-query parametrar ---
+        // --- FIX: params skickar nu med TARGET_CHANNEL_ID i queryn till n8n ---
         const response = await axios.post(N8N_WEBHOOK_URL, wavBuffer, {
             headers: {
                 'Content-Type': 'audio/wav',
