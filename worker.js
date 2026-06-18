@@ -89,18 +89,14 @@ function createWavHeader(dataLength) {
 function setupVoiceReceiver(connection) {
     const receiver = connection.receiver;
     
-    // --- FIX: Map för att förhindra flera överlappande inspelningar av samma användare ---
     const activeStreams = new Map();
 
     receiver.speaking.on('start', (userId) => {
-        // Blockera botens egen röst
         if (userId === client.user.id) return;
-        
-        // Om vi redan spelar in Pär just nu, ignorera nya "start"-signaler från micken
         if (activeStreams.has(userId)) return;
 
         console.log(`[🎙️] Användare ${userId} pratar...`);
-        activeStreams.set(userId, true); // Lås kanalen
+        activeStreams.set(userId, true);
         
         const audioStream = receiver.subscribe(userId, {
             end: {
@@ -119,12 +115,10 @@ function setupVoiceReceiver(connection) {
         });
 
         decoder.on('end', async () => {
-            // Lås upp kanalen när tystnaden är över
             activeStreams.delete(userId);
             
             const pcmBuffer = Buffer.concat(pcmChunks);
             
-            // --- FIX: Höjd gräns till 150 000 bytes för att döda fingarknäppningar ---
             if (pcmBuffer.length < 150000) {
                 console.log(`[🔇] Ljud för kort (${pcmBuffer.length} bytes). Klassas som brus/knäpp och ignoreras.`);
                 return; 
@@ -144,10 +138,14 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
     try {
         console.log(`[🚀] Skickar formaterat WAV-ljud till n8n...`);
         
+        // --- KORRIGERING: params har lagts till för att skicka med url-query parametrar ---
         const response = await axios.post(N8N_WEBHOOK_URL, wavBuffer, {
             headers: {
                 'Content-Type': 'audio/wav',
                 'Content-Disposition': 'attachment; filename="audio.wav"'
+            },
+            params: {
+                channel_id: TARGET_CHANNEL_ID
             },
             responseType: 'arraybuffer' 
         });
