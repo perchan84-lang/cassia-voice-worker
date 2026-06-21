@@ -1,9 +1,9 @@
-// --- FIX: Tvingar Node att använda IPv4 ---
+// --- FIX: Tvingar Node att använda IPv4 för att kringgå Railways IPv6 UDP-blockering ---
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, AudioPlayerStatus, getVoiceConnection } = require('@discordjs/voice');
+const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, getVoiceConnection } = require('@discordjs/voice');
 const prism = require('prism-media');
 const axios = require('axios');
 const { Readable } = require('stream');
@@ -62,7 +62,7 @@ client.on('ready', async () => {
     }
 });
 
-// --- Text-lyssnare (Din nya funktion) ---
+// --- Text-lyssnare ---
 client.on('messageCreate', async (message) => {
     if (message.author.bot || message.channel.id !== TARGET_CHANNEL_ID) return;
     try {
@@ -70,7 +70,7 @@ client.on('messageCreate', async (message) => {
     } catch (e) { console.error('[❌] Fel i text-lyssnare:', e.message); }
 });
 
-// --- DIN ORIGINALA RÖST-LOGIK (Bevarad och intakt) ---
+// --- RÖST-LOGIK ---
 function createWavHeader(dataLength) {
     const sampleRate = 48000;
     const numChannels = 2;
@@ -111,7 +111,6 @@ function setupVoiceReceiver(connection) {
     });
 }
 
-// --- DIN ORIGINALA SEND-FUNKTION (userId inkluderat) ---
 async function sendToN8nSatellit(wavBuffer, userId, connection) {
     try {
         const response = await axios.post(N8N_WEBHOOK_URL, wavBuffer, {
