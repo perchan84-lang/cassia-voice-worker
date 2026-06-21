@@ -1,5 +1,3 @@
-har du tagit bort i koden att användar ID ska skickas med`? här är originalkoden....:
-
 // --- FIX: Tvingar Node att använda IPv4 för att kringgå Railways IPv6 UDP-blockering ---
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
