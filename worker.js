@@ -7,61 +7,61 @@ const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPla
 const prism = require('prism-media');
 const axios = require('axios');
 const { Readable } = require('stream');
+const express = require('express'); // Nytt tillägg
 require('dotenv').config();
 
-console.log("=== 🛠️ CASSIA VOICE ENGINE DIAGNOSTIK ===");
-console.log(generateDependencyReport());
-console.log("=========================================");
+// --- Express-server för att ta emot n8n-anrop ---
+const app = express();
+app.use(express.raw({ type: '*/*', limit: '10mb' }));
+
+app.post('/speak-now', async (req, res) => {
+    try {
+        console.log('[📥] Mottog externt röstuppspelningsanrop.');
+        const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
+        const connection = joinVoiceChannel({
+            channelId: channel.id,
+            guildId: channel.guild.id,
+            adapterCreator: channel.guild.voiceAdapterCreator
+        });
+
+        const audioPlayer = createAudioPlayer();
+        const stream = Readable.from(req.body);
+        const resource = createAudioResource(stream);
+        
+        connection.subscribe(audioPlayer);
+        audioPlayer.play(resource);
+        
+        res.status(200).send('Audio played successfully');
+    } catch (e) {
+        console.error('[❌] Fel i /speak-now:', e);
+        res.status(500).send(e.message);
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`[🌐] API-lyssnare online på port ${PORT}`));
+// --- Slut på Express-server ---
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildVoiceStates,
-    ]
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
 });
 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 const SILENCE_TIMEOUT = 2500;
 const TARGET_CHANNEL_ID = '1505695523594698776'; 
 
-client.on('error', (error) => {
-    console.error(`[🚨 CLIENT ERROR] ${error.message}`);
-});
-
-// --- FIX: Ändrat från 'clientReady' till 'ready' för att trigga igång anslutningen korrekt ---
 client.on('ready', async () => {
     console.log(`[🤖] Voice Worker online som ${client.user.tag}`);
-
     const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
-
     if (channel && channel.isVoiceBased()) {
         const connection = joinVoiceChannel({
             channelId: channel.id,
             guildId: channel.guild.id,
-            adapterCreator: channel.guild.voiceAdapterCreator,
-            selfDeaf: false,
-            selfMute: false
+            adapterCreator: channel.guild.voiceAdapterCreator
         });
-
-        connection.on('error', (error) => {
-            console.error(`[🚨 UDP ERROR] ${error.message}`);
-        });
-
-        connection.on('stateChange', (oldState, newState) => {
-            console.log(`[🔄] Anslutningsstatus ändrades från ${oldState.status} till ${newState.status}`);
-        });
-
-        let isEarsAttached = false;
-
         connection.on(VoiceConnectionStatus.Ready, () => {
-            if (!isEarsAttached) {
-                console.log(`[🔊] Cassia är ansluten och väntar i: ${channel.name}`);
-                setupVoiceReceiver(connection);
-                isEarsAttached = true;
-            }
+            setupVoiceReceiver(connection);
         });
-    } else {
-        console.error('[❌] Kunde inte hitta röstkanalen.');
     }
 });
 
@@ -69,7 +69,6 @@ function createWavHeader(dataLength) {
     const sampleRate = 48000;
     const numChannels = 2;
     const bitDepth = 16;
-    
     const header = Buffer.alloc(44);
     header.write('RIFF', 0);
     header.writeUInt32LE(36 + dataLength, 4);
@@ -89,84 +88,30 @@ function createWavHeader(dataLength) {
 
 function setupVoiceReceiver(connection) {
     const receiver = connection.receiver;
-    
-    const activeStreams = new Map();
-
     receiver.speaking.on('start', (userId) => {
         if (userId === client.user.id) return;
-        if (activeStreams.has(userId)) return;
-
-        console.log(`[🎙️] Användare ${userId} pratar...`);
-        activeStreams.set(userId, true);
-        
-        const audioStream = receiver.subscribe(userId, {
-            end: {
-                behavior: EndBehaviorType.AfterSilence,
-                duration: SILENCE_TIMEOUT,
-            },
-        });
-
+        const audioStream = receiver.subscribe(userId, { end: { behavior: EndBehaviorType.AfterSilence, duration: SILENCE_TIMEOUT }});
         const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2 });
         const pcmChunks = [];
-
-        audioStream.pipe(decoder);
-
-        decoder.on('data', (chunk) => {
-            pcmChunks.push(chunk);
-        });
-
-        decoder.on('end', async () => {
-            activeStreams.delete(userId);
-            
+        audioStream.pipe(decoder).on('data', (c) => pcmChunks.push(c)).on('end', async () => {
             const pcmBuffer = Buffer.concat(pcmChunks);
-            
-            if (pcmBuffer.length < 150000) {
-                console.log(`[🔇] Ljud för kort (${pcmBuffer.length} bytes). Klassas som brus/knäpp och ignoreras.`);
-                return; 
-            }
-
-            console.log(`[🛑] Tystnad detekterad. Processar ${pcmBuffer.length} bytes röstdata...`);
-
-            const wavHeader = createWavHeader(pcmBuffer.length);
-            const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
-
-            await sendToN8nSatellit(wavBuffer, userId, connection);
+            if (pcmBuffer.length < 150000) return;
+            const wavBuffer = Buffer.concat([createWavHeader(pcmBuffer.length), pcmBuffer]);
+            await sendToN8nSatellit(wavBuffer, connection);
         });
     });
 }
 
-async function sendToN8nSatellit(wavBuffer, userId, connection) {
+async function sendToN8nSatellit(wavBuffer, connection) {
     try {
-        console.log(`[🚀] Skickar formaterat WAV-ljud till n8n...`);
-        
-        // --- FIX: params skickar nu med TARGET_CHANNEL_ID i queryn till n8n ---
         const response = await axios.post(N8N_WEBHOOK_URL, wavBuffer, {
-            headers: {
-                'Content-Type': 'audio/wav',
-                'Content-Disposition': 'attachment; filename="audio.wav"'
-            },
-            params: {
-                channel_id: TARGET_CHANNEL_ID
-            },
+            headers: { 'Content-Type': 'audio/wav' },
             responseType: 'arraybuffer' 
         });
-
-        console.log('[✅] Fick svar från n8n (ElevenLabs). Spelar upp ljudet...');
-        
         const audioPlayer = createAudioPlayer();
-        const stream = Readable.from(response.data);
-        const resource = createAudioResource(stream);
-        
+        audioPlayer.play(createAudioResource(Readable.from(response.data)));
         connection.subscribe(audioPlayer);
-        audioPlayer.play(resource);
-
-        audioPlayer.on(AudioPlayerStatus.Idle, () => {
-            console.log('[🛑] Cassia har pratat klart, väntar på ny input...');
-        });
-
-    } catch (error) {
-        console.error('[❌] Något gick fel vid anropet till n8n:', error.message);
-    }
+    } catch (e) { console.error(e); }
 }
 
 client.login(process.env.DISCORD_TOKEN);
