@@ -3,14 +3,14 @@ const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, AudioPlayerStatus, getVoiceConnection, generateDependencyReport } = require('@discordjs/voice');
+const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, getVoiceConnection, generateDependencyReport } = require('@discordjs/voice');
 const prism = require('prism-media');
 const axios = require('axios');
 const { Readable } = require('stream');
 const express = require('express');
 require('dotenv').config();
 
-console.log("=== 🛠️ CASSIA ALL-IN-ONE ENGINE (UPDATED) ===");
+console.log("=== 🛠️ CASSIA ALL-IN-ONE ENGINE (RESTORED) ===");
 console.log(generateDependencyReport());
 
 const client = new Client({
@@ -45,16 +45,24 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`[🌐] API-lyssnare online på port ${PORT}`));
 
 // --- Voice & Text Logic ---
-client.on('ready', async () => {
+client.once('ready', async () => {
     console.log(`[🤖] Cassia online som ${client.user.tag}`);
-    const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
-    if (channel?.isVoiceBased()) {
-        const connection = joinVoiceChannel({ channelId: channel.id, guildId: channel.guild.id, adapterCreator: channel.guild.voiceAdapterCreator });
-        connection.on(VoiceConnectionStatus.Ready, () => setupVoiceReceiver(connection));
-    }
+    try {
+        const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
+        if (channel && channel.isVoiceBased()) {
+            const connection = joinVoiceChannel({ 
+                channelId: channel.id, 
+                guildId: channel.guild.id, 
+                adapterCreator: channel.guild.voiceAdapterCreator 
+            });
+            connection.on(VoiceConnectionStatus.Ready, () => {
+                console.log(`[✅] Ansluten till röstkanal`);
+                setupVoiceReceiver(connection);
+            });
+        }
+    } catch (e) { console.error('[❌] Fel vid anslutning:', e.message); }
 });
 
-// LYSNA: Skicka text från Discord till n8n
 client.on('messageCreate', async (message) => {
     if (message.author.id === client.user.id) return;
     try {
