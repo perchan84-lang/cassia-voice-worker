@@ -10,13 +10,15 @@ const { Readable } = require('stream');
 const express = require('express');
 require('dotenv').config();
 
-console.log("=== 🛠️ CASSIA ALL-IN-ONE ENGINE ===");
+console.log("=== 🛠️ CASSIA ALL-IN-ONE ENGINE (UPDATED) ===");
 console.log(generateDependencyReport());
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
     ]
 });
 
@@ -29,18 +31,6 @@ const TARGET_CHANNEL_ID = '1505695523594698776';
 const SILENCE_TIMEOUT = 2500;
 
 // --- API Endpoints ---
-app.post('/speak-now', async (req, res) => {
-    if (req.headers['x-api-key'] !== process.env.API_SECRET) return res.status(403).send('Obehörig.');
-    try {
-        const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
-        let connection = getVoiceConnection(channel.guild.id) || joinVoiceChannel({ channelId: channel.id, guildId: channel.guild.id, adapterCreator: channel.guild.voiceAdapterCreator });
-        const audioPlayer = createAudioPlayer();
-        connection.subscribe(audioPlayer);
-        audioPlayer.play(createAudioResource(Readable.from(req.body)));
-        res.status(200).send('Audio played');
-    } catch (e) { res.status(500).send(e.message); }
-});
-
 app.post('/send-text', async (req, res) => {
     if (req.headers['x-api-key'] !== process.env.API_SECRET) return res.status(403).send('Obehörig.');
     try {
@@ -54,7 +44,7 @@ app.post('/send-text', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`[🌐] API-lyssnare online på port ${PORT}`));
 
-// --- Voice Logic ---
+// --- Voice & Text Logic ---
 client.on('ready', async () => {
     console.log(`[🤖] Cassia online som ${client.user.tag}`);
     const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
@@ -62,6 +52,18 @@ client.on('ready', async () => {
         const connection = joinVoiceChannel({ channelId: channel.id, guildId: channel.guild.id, adapterCreator: channel.guild.voiceAdapterCreator });
         connection.on(VoiceConnectionStatus.Ready, () => setupVoiceReceiver(connection));
     }
+});
+
+// LYSNA: Skicka text från Discord till n8n
+client.on('messageCreate', async (message) => {
+    if (message.author.id === client.user.id) return;
+    try {
+        await axios.post(N8N_WEBHOOK_URL, {
+            user: message.author.username,
+            text: message.content,
+            channelId: message.channel.id
+        });
+    } catch (e) { console.error("Kunde inte skicka till n8n:", e.message); }
 });
 
 function createWavHeader(dataLength) {
