@@ -64,7 +64,6 @@ client.once('ready', async () => {
 });
 
 client.on('messageCreate', async (message) => {
-    // Om boten är avsändaren, eller om meddelandet är tomt -> AVBRYT DIREKT
     if (message.author.id === client.user.id || !message.content) return;
     
     try {
@@ -72,9 +71,14 @@ client.on('messageCreate', async (message) => {
             user: message.author.username,
             text: message.content,
             channelId: message.channel.id
+        }, {
+            headers: {
+                'Content-Type': 'application/json' // Viktigt: Tvinga JSON
+            }
         });
-    } catch (e) { console.error("Fel vid skick till n8n:", e.message); }
+    } catch (e) { console.error("Kunde inte skicka:", e.message); }
 });
+
 
 
 
