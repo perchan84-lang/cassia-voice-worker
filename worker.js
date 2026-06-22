@@ -64,16 +64,18 @@ client.once('ready', async () => {
 });
 
 client.on('messageCreate', async (message) => {
-    if (message.author.id === client.user.id) return;
+    // Om boten är avsändaren, eller om meddelandet är tomt -> AVBRYT DIREKT
+    if (message.author.id === client.user.id || !message.content) return;
+    
     try {
-        // Vi använder nu den nya miljövariabeln för ren text-trafik
         await axios.post(process.env.N8N_TEXT_WEBHOOK_URL, {
             user: message.author.username,
             text: message.content,
             channelId: message.channel.id
         });
-    } catch (e) { console.error("Kunde inte skicka text till n8n:", e.message); }
+    } catch (e) { console.error("Fel vid skick till n8n:", e.message); }
 });
+
 
 
 
