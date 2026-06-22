@@ -63,21 +63,33 @@ client.once('ready', async () => {
     } catch (e) { console.error('[❌] Fel vid anslutning:', e.message); }
 });
 
+let isProcessing = false; // Låsmekanism
+
 client.on('messageCreate', async (message) => {
-    if (message.author.id === client.user.id || !message.content) return;
+    // 1. Stoppa om det är boten själv
+    if (message.author.id === client.user.id) return;
     
+    // 2. Stoppa om boten redan bearbetar ett svar (bryter loopen)
+    if (isProcessing) return;
+
     try {
+        isProcessing = true; // Aktivera lås
+
         await axios.post(process.env.N8N_TEXT_WEBHOOK_URL, {
             user: message.author.username,
             text: message.content,
             channelId: message.channel.id
-        }, {
-            headers: {
-                'Content-Type': 'application/json' // Viktigt: Tvinga JSON
-            }
-        });
-    } catch (e) { console.error("Kunde inte skicka:", e.message); }
+        }, { headers: { 'Content-Type': 'application/json' }});
+
+        // Släpp låset efter en kort stund
+        setTimeout(() => { isProcessing = false; }, 2000); 
+        
+    } catch (e) { 
+        isProcessing = false; // Släpp låset vid fel
+        console.error("Kommunikationsfel:", e.message); 
+    }
 });
+
 
 
 
