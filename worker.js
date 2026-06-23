@@ -81,9 +81,13 @@ function isAudioSignificant(buffer) {
         sum += Math.abs(buffer.readInt16LE(Math.min(i, buffer.length - 2)));
     }
     const avg = sum / (buffer.length / 100);
-    // Sänkt till 1000 för att bättre korrelera med en mörkare, dov röstprofil
-    return avg > 1000;
+    
+    // Skalar upp den uppmätta energin med 4 för att kompensera 
+    // för din dova rösts frekvensprofil innan vi jämför mot tröskeln 1000
+    const scaled = avg * 4;
+    return scaled > 1000;
 }
+
 
 
 function setupVoiceReceiver(connection) {
