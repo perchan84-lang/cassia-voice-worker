@@ -63,8 +63,6 @@ client.once('ready', async () => {
     } catch (e) { console.error('[❌] Fel vid anslutning:', e.message); }
 });
 
-
-
 function createWavHeader(dataLength) {
     const header = Buffer.alloc(44);
     header.write('RIFF', 0);
@@ -75,6 +73,15 @@ function createWavHeader(dataLength) {
     header.writeUInt32LE(48000, 24); header.writeUInt32LE(48000 * 2 * 2, 28); header.writeUInt16LE(4, 32); header.writeUInt16LE(16, 34);
     header.write('data', 36); header.writeUInt32LE(dataLength, 40);
     return header;
+}
+
+function isAudioSignificant(buffer) {
+    let sum = 0;
+    for (let i = 0; i < buffer.length; i += 100) {
+        sum += Math.abs(buffer.readInt16LE(Math.min(i, buffer.length - 2)));
+    }
+    const avg = sum / (buffer.length / 100);
+    return avg > 1500;
 }
 
 function setupVoiceReceiver(connection) {
@@ -90,6 +97,13 @@ function setupVoiceReceiver(connection) {
             activeStreams.delete(userId);
             const pcmBuffer = Buffer.concat(pcmChunks);
             if (pcmBuffer.length < 150000) return;
+            
+            // Brusreducering tillagd här
+            if (!isAudioSignificant(pcmBuffer)) {
+                console.log(`[🔇] Brus detekterat - ignorerar sändning.`);
+                return;
+            }
+
             await sendToN8nSatellit(Buffer.concat([createWavHeader(pcmBuffer.length), pcmBuffer]), userId, connection);
         });
     });
