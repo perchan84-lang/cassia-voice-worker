@@ -3,48 +3,27 @@ const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, getVoiceConnection, generateDependencyReport } = require('@discordjs/voice');
+const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, generateDependencyReport } = require('@discordjs/voice');
 const prism = require('prism-media');
 const axios = require('axios');
 const { Readable } = require('stream');
-const express = require('express');
 require('dotenv').config();
 
-console.log("=== 🛠️ CASSIA ALL-IN-ONE ENGINE (RESTORED) ===");
+console.log("=== 🛠️ CASSIA VOICE-ONLY ENGINE (CLEANED) ===");
 console.log(generateDependencyReport());
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.GuildVoiceStates
     ]
 });
-
-const app = express();
-app.use(express.json());
-app.use(express.raw({ type: 'audio/*', limit: '10mb' }));
 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 const TARGET_CHANNEL_ID = '1505695523594698776';
 const SILENCE_TIMEOUT = 2500;
 
-// --- API Endpoints ---
-app.post('/send-text', async (req, res) => {
-    if (req.headers['x-api-key'] !== process.env.API_SECRET) return res.status(403).send('Obehörig.');
-    try {
-        const { channelId, message } = req.body;
-        const channel = await client.channels.fetch(channelId || TARGET_CHANNEL_ID);
-        await channel.send(message);
-        res.status(200).send('Message sent');
-    } catch (e) { res.status(500).send(e.message); }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`[🌐] API-lyssnare online på port ${PORT}`));
-
-// --- Voice & Text Logic ---
+// --- Voice Logic ---
 client.once('ready', async () => {
     console.log(`[🤖] Cassia online som ${client.user.tag}`);
     try {
@@ -81,14 +60,9 @@ function isAudioSignificant(buffer) {
         sum += Math.abs(buffer.readInt16LE(Math.min(i, buffer.length - 2)));
     }
     const avg = sum / (buffer.length / 100);
-    
-    // Skalar upp den uppmätta energin med 4 för att kompensera 
-    // för din dova rösts frekvensprofil innan vi jämför mot tröskeln 1000
     const scaled = avg * 4;
     return scaled > 1000;
 }
-
-
 
 function setupVoiceReceiver(connection) {
     const receiver = connection.receiver;
@@ -104,7 +78,6 @@ function setupVoiceReceiver(connection) {
             const pcmBuffer = Buffer.concat(pcmChunks);
             if (pcmBuffer.length < 150000) return;
             
-            // Brusreducering tillagd här
             if (!isAudioSignificant(pcmBuffer)) {
                 console.log(`[🔇] Brus detekterat - ignorerar sändning.`);
                 return;
