@@ -9,7 +9,7 @@ const axios = require('axios');
 const { Readable } = require('stream');
 require('dotenv').config();
 
-console.log("=== 🛠️ CASSIA LIVE VOICE-STREAM ENGINE (UPGRADED) ===");
+console.log("=== 🛠️ CASSIA LIVE BILINGUAL VOICE-STREAM ENGINE ===");
 console.log(generateDependencyReport());
 
 const client = new Client({
@@ -25,7 +25,6 @@ const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'nf4MCGNSdM0hxM95
 const TARGET_CHANNEL_ID = '1505695523594698776';
 const SILENCE_TIMEOUT = 2500;
 
-// Vi skapar en global spelare så att röstmottagningen inte krockar eller kraschar
 const audioPlayer = createAudioPlayer();
 
 // --- Voice Logic ---
@@ -93,36 +92,31 @@ function setupVoiceReceiver(connection) {
                 return;
             }
 
-            // Skicka ljudet till n8n för att trigga Grok
             await sendToN8nSatellit(Buffer.concat([createWavHeader(pcmBuffer.length), pcmBuffer]), userId, connection);
         });
     });
 }
 
-// --- ÄNDRAD FUNKTION: Hanterar text till realtids-röstström ---
+// --- Hanterar text till realtids-röstström ---
 async function sendToN8nSatellit(wavBuffer, userId, connection) {
     try {
-        console.log(`[📡] Skickar ljud till n8n, väntar på Groks råa svar...`);
+        console.log(`[📡] Skickar ljud till n8n, väntar på Groks svar...`);
         
-        // 1. Skicka din röst (.wav) till n8n. Notera att vi förväntar oss JSON-text tillbaka nu (inte arraybuffer)
         const response = await axios.post(N8N_WEBHOOK_URL, wavBuffer, {
             headers: { 
                 'Content-Type': 'audio/wav', 
                 'X-Channel-ID': TARGET_CHANNEL_ID, 
                 'X-User-ID': userId 
             },
-            responseType: 'json' // Ändrat från arraybuffer till json för att ta emot text
+            responseType: 'json'
         });
 
-        // --- SKOTTSÄKER TEXTHÄMTNING ---
         let grokTextReply = "";
-
         if (response.data) {
             if (typeof response.data === 'string') {
-                grokTextReply = response.data; // n8n skickade ren text
+                grokTextReply = response.data;
             } else if (typeof response.data === 'object') {
-                // Kollar alla vanliga fält, inklusive om n8n skickade det som en array [0]
-                const dataObj = Array.isArray(response.data) ? response.data[0] : response.data;
+                const dataObj = Array.isArray(response.data) ? response.data : response.data;
                 grokTextReply = dataObj?.text || dataObj?.output || dataObj?.response || dataObj?.clean_text || JSON.stringify(dataObj);
             }
         }
@@ -130,48 +124,58 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
         console.log("[🔍] Detekterad text från n8n:", grokTextReply.substring(0, 50));
 
         if (!grokTextReply || grokTextReply === "{}" || grokTextReply === "[]") {
-            console.log("[⚠️] n8n svarade, men vi kunde inte extrahera någon giltig text. Råsvar:", JSON.stringify(response.data));
             return;
         }
 
-        // Lägg till dramatiska mikro-pauser för råa, explicita berättelser och svordomar
-        const formateradText = grokTextReply
-        ;
+        // --- DYNAMISK SPRÅKDETEKTERING ---
+        // Letar efter de 15 vanligaste svenska orden. Hittas inget, kör vi engelska.
+        const vanligaSvenskaOrd = /\b(och|att|det|i|på|en|ett|är|jag|ska|med|inte|om|men|eller)\b/i;
+        const ärSvenska = vanligaSvenskaOrd.test(grokTextReply);
 
-        console.log(`[🎙️] Strömmar live från ElevenLabs: "${formateradText.substring(0, 40)}..."`);
+        let anpassadeInställningar = {};
 
-        // Sätter ihop länken säkert i egna variabler för att dölja den från app-avbrott
+        if (ärSvenska) {
+            console.log("[🇸🇪] Svenska detekterat. Tvingar hög röststabilitet.");
+            anpassadeInställningar = {
+                stability: 0.65,          // Tar bort den amerikanska brytningen helt
+                similarity_boost: 0.90,    // Håller kvar den svenska röstkaraktären
+                style: 0.0,
+                use_speaker_boost: true
+            };
+        } else {
+            console.log("[🇬🇧] Engelska detekterat. Öppnar upp för mer inlevelse.");
+            anpassadeInställningar = {
+                stability: 0.45,          // Lägre stabilitet ger fantastisk inlevelse och känslor på engelska
+                similarity_boost: 0.85,
+                style: 0.10,
+                use_speaker_boost: true
+            };
+        }
+
         const startAvLänk = "https://api." + "elevenlabs.io";
         const mittenAvLänk = "/v1/text" + "-to-speech/";
         const helaElevenLabsUrl = startAvLänk + mittenAvLänk + ELEVENLABS_VOICE_ID + "/stream";
 
-        // 2. Öppna en direkt realtidsström mot ElevenLabs med dina ocensurerade röstinställningar
         const elevenLabsResponse = await axios({
             method: 'post',
             url: helaElevenLabsUrl,
             data: {
-                text: formateradText,
-                model_id: "eleven_turbo_v2.5", // Din supersnabba modell från n8n
-                voice_settings: { 
-                    stability: 0.55,          // Sänkt för max rå inlevelse och känsla
-                    similarity_boost: 0.85,    // Högt så rösten inte sviktar vid grova ord
-                    style: 0.15,
-                    use_speaker_boost: true
-                }
+                text: grokTextReply,
+                model_id: "eleven_multilingual_v2", // Denna modell krävs för att köra flera språk live
+                voice_settings: anpassadeInställningar
             },
             headers: {
                 'xi-api-key': ELEVENLABS_API_KEY,
                 'accept': '*/*',
                 'content-type': 'application/json'
             },
-            responseType: 'stream' // Strömmar rådata live direkt i kanalen
+            responseType: 'stream'
         });
 
         const resource = createAudioResource(elevenLabsResponse.data, {
             inputType: StreamType.Arbitrary
         });
 
-        // Spela upp ljudet live till dig utan att avbryta röstmottagningen
         audioPlayer.play(resource);
 
     } catch (e) { 
