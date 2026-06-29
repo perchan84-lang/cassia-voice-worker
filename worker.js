@@ -114,11 +114,23 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
             responseType: 'json' // Ändrat från arraybuffer till json för att ta emot text
         });
 
-        // Hämta textsvaret från n8n (standardfältet från din Cassia_Brain)
-        const grokTextReply = response.data.output || response.data.text;
-        
-        if (!grokTextReply) {
-            console.log("[⚠️] n8n svarade, men inget textfält ('output' eller 'text') hittades.");
+        // --- SKOTTSÄKER TEXTHÄMTNING ---
+        let grokTextReply = "";
+
+        if (response.data) {
+            if (typeof response.data === 'string') {
+                grokTextReply = response.data; // n8n skickade ren text
+            } else if (typeof response.data === 'object') {
+                // Kollar alla vanliga fält, inklusive om n8n skickade det som en array [0]
+                const dataObj = Array.isArray(response.data) ? response.data[0] : response.data;
+                grokTextReply = dataObj?.text || dataObj?.output || dataObj?.response || dataObj?.clean_text || JSON.stringify(dataObj);
+            }
+        }
+
+        console.log("[🔍] Detekterad text från n8n:", grokTextReply.substring(0, 50));
+
+        if (!grokTextReply || grokTextReply === "{}" || grokTextReply === "[]") {
+            console.log("[⚠️] n8n svarade, men vi kunde inte extrahera någon giltig text. Råsvar:", JSON.stringify(response.data));
             return;
         }
 
@@ -130,10 +142,15 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
 
         console.log(`[🎙️] Strömmar live från ElevenLabs: "${formateradText.substring(0, 40)}..."`);
 
+        // Sätter ihop länken säkert i egna variabler för att dölja den från app-avbrott
+        const startAvLänk = "https://api." + "elevenlabs.io";
+        const mittenAvLänk = "/v1/text" + "-to-speech/";
+        const helaElevenLabsUrl = startAvLänk + mittenAvLänk + ELEVENLABS_VOICE_ID + "/stream";
+
         // 2. Öppna en direkt realtidsström mot ElevenLabs med dina ocensurerade röstinställningar
         const elevenLabsResponse = await axios({
             method: 'post',
-            url: `https://elevenlabs.io{ELEVENLABS_VOICE_ID}/stream`,
+            url: helaElevenLabsUrl,
             data: {
                 text: formateradText,
                 model_id: "eleven_turbo_v2_5", // Din supersnabba modell från n8n
