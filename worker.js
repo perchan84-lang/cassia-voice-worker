@@ -151,9 +151,9 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
             url: helaElevenLabsUrl,
             data: {
                 text: formateradText,
-                model_id: "eleven_turbo_v2", // Din supersnabba modell från n8n
+                model_id: "eleven_turbo_v2.5", // Din supersnabba modell från n8n
                 voice_settings: { 
-                    stability: 0.35,          // Sänkt för max rå inlevelse och känsla
+                    stability: 0.55,          // Sänkt för max rå inlevelse och känsla
                     similarity_boost: 0.85,    // Högt så rösten inte sviktar vid grova ord
                     style: 0.15,
                     use_speaker_boost: true
