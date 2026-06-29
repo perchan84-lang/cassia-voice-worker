@@ -3,13 +3,13 @@ const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, generateDependencyReport, StreamType } = require('@discordjs/voice');
+const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, generateDependencyReport, StreamType, AudioPlayerStatus } = require('@discordjs/voice');
 const prism = require('prism-media');
 const axios = require('axios');
 const { Readable } = require('stream');
 require('dotenv').config();
 
-console.log("=== 🛠️ CASSIA LIVE BILINGUAL VOICE-STREAM ENGINE ===");
+console.log("=== 🛠️ CASSIA LIVE BILINGUAL VOICE-STREAM ENGINE (ANTI-INTERRUPT) ===");
 console.log(generateDependencyReport());
 
 const client = new Client({
@@ -23,9 +23,13 @@ const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'nf4MCGNSdM0hxM95ZBQR';
 const TARGET_CHANNEL_ID = '1505695523594698776';
-const SILENCE_TIMEOUT = 2500;
 
+// FIX 1: Ändrad från 2500 till 1000 för mycket lägre latency (1 sekund)
+const SILENCE_TIMEOUT = 1000;
+
+// FIX 2: Skapar global spelare och en upptagen-status för krockskydd
 const audioPlayer = createAudioPlayer();
+let ärUpptagen = false;
 
 // --- Voice Logic ---
 client.once('ready', async () => {
@@ -67,7 +71,7 @@ function isAudioSignificant(buffer) {
     }
     const avg = sum / (buffer.length / 100);
     const scaled = avg * 4;
-    return scaled > 1000;
+    return scaled > 1500;
 }
 
 function setupVoiceReceiver(connection) {
@@ -76,6 +80,13 @@ function setupVoiceReceiver(connection) {
     
     receiver.speaking.on('start', (userId) => {
         if (userId === client.user.id || activeStreams.has(userId)) return;
+        
+        // FIX 3: Om hon pratar eller väntar på svar, ignorera helt det nya ljudet
+        if (ärUpptagen) {
+            console.log(`[🤫] Ny röst detekterad, men Cassia är upptagen – ignorerar sändning.`);
+            return;
+        }
+        
         activeStreams.set(userId, true);
         
         const audioStream = receiver.subscribe(userId, { end: { behavior: EndBehaviorType.AfterSilence, duration: SILENCE_TIMEOUT }});
@@ -92,6 +103,9 @@ function setupVoiceReceiver(connection) {
                 return;
             }
 
+            // Om hon blev upptagen precis under sändningen, stoppa innan vi skickar till n8n
+            if (ärUpptagen) return;
+
             await sendToN8nSatellit(Buffer.concat([createWavHeader(pcmBuffer.length), pcmBuffer]), userId, connection);
         });
     });
@@ -100,6 +114,8 @@ function setupVoiceReceiver(connection) {
 // --- Hanterar text till realtids-röstström ---
 async function sendToN8nSatellit(wavBuffer, userId, connection) {
     try {
+        // FIX 4: Lås systemet direkt när sändningen startar
+        ärUpptagen = true;
         console.log(`[📡] Skickar ljud till n8n, väntar på Groks svar...`);
         
         const response = await axios.post(N8N_WEBHOOK_URL, wavBuffer, {
@@ -124,11 +140,12 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
         console.log("[🔍] Detekterad text från n8n:", grokTextReply.substring(0, 50));
 
         if (!grokTextReply || grokTextReply === "{}" || grokTextReply === "[]") {
+            // Lås upp om n8n skickade tomt svar så hon inte fastnar
+            ärUpptagen = false;
             return;
         }
 
         // --- DYNAMISK SPRÅKDETEKTERING ---
-        // Letar efter de 15 vanligaste svenska orden. Hittas inget, kör vi engelska.
         const vanligaSvenskaOrd = /\b(och|att|det|i|på|en|ett|är|jag|ska|med|inte|om|men|eller)\b/i;
         const ärSvenska = vanligaSvenskaOrd.test(grokTextReply);
 
@@ -137,15 +154,15 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
         if (ärSvenska) {
             console.log("[🇸🇪] Svenska detekterat. Tvingar hög röststabilitet.");
             anpassadeInställningar = {
-                stability: 0.65,          // Tar bort den amerikanska brytningen helt
-                similarity_boost: 0.90,    // Håller kvar den svenska röstkaraktären
+                stability: 0.65,
+                similarity_boost: 0.90,
                 style: 0.0,
                 use_speaker_boost: true
             };
         } else {
             console.log("[🇬🇧] Engelska detekterat. Öppnar upp för mer inlevelse.");
             anpassadeInställningar = {
-                stability: 0.45,          // Lägre stabilitet ger fantastisk inlevelse och känslor på engelska
+                stability: 0.45,
                 similarity_boost: 0.85,
                 style: 0.10,
                 use_speaker_boost: true
@@ -161,7 +178,7 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
             url: helaElevenLabsUrl,
             data: {
                 text: grokTextReply,
-                model_id: "eleven_multilingual_v2", // Denna modell krävs för att köra flera språk live
+                model_id: "eleven_multilingual_v2",
                 voice_settings: anpassadeInställningar
             },
             headers: {
@@ -178,7 +195,15 @@ async function sendToN8nSatellit(wavBuffer, userId, connection) {
 
         audioPlayer.play(resource);
 
+        // FIX 5: Lås upp öronen först när hon helt har pratat klart och tystnat i kanalen
+        audioPlayer.once(AudioPlayerStatus.Idle, () => {
+            console.log("[🔓] Cassia har pratat klart. Öppnar öronen igen.");
+            ärUpptagen = false;
+        });
+
     } catch (e) { 
+        // Återställ låset vid fel så hon inte förblir stum för evigt
+        ärUpptagen = false;
         console.error('[❌] Fel i röstströmmen/n8n-anropet:', e.message); 
     }
 }
