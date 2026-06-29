@@ -3,13 +3,13 @@ const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, generateDependencyReport } = require('@discordjs/voice');
+const { joinVoiceChannel, VoiceConnectionStatus, EndBehaviorType, createAudioPlayer, createAudioResource, generateDependencyReport, StreamType } = require('@discordjs/voice');
 const prism = require('prism-media');
 const axios = require('axios');
 const { Readable } = require('stream');
 require('dotenv').config();
 
-console.log("=== 🛠️ CASSIA VOICE-ONLY ENGINE (CLEANED) ===");
+console.log("=== 🛠️ CASSIA LIVE VOICE-STREAM ENGINE (UPGRADED) ===");
 console.log(generateDependencyReport());
 
 const client = new Client({
@@ -20,8 +20,13 @@ const client = new Client({
 });
 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'nf4MCGNSdM0hxM95ZBQR';
 const TARGET_CHANNEL_ID = '1505695523594698776';
 const SILENCE_TIMEOUT = 2500;
+
+// Vi skapar en global spelare så att röstmottagningen inte krockar eller kraschar
+const audioPlayer = createAudioPlayer();
 
 // --- Voice Logic ---
 client.once('ready', async () => {
@@ -34,8 +39,10 @@ client.once('ready', async () => {
                 guildId: channel.guild.id, 
                 adapterCreator: channel.guild.voiceAdapterCreator 
             });
+            connection.subscribe(audioPlayer);
+            
             connection.on(VoiceConnectionStatus.Ready, () => {
-                console.log(`[✅] Ansluten till röstkanal`);
+                console.log(`[✅] Ansluten till röstkanal och redo att lyssna`);
                 setupVoiceReceiver(connection);
             });
         }
@@ -67,12 +74,15 @@ function isAudioSignificant(buffer) {
 function setupVoiceReceiver(connection) {
     const receiver = connection.receiver;
     const activeStreams = new Map();
+    
     receiver.speaking.on('start', (userId) => {
         if (userId === client.user.id || activeStreams.has(userId)) return;
         activeStreams.set(userId, true);
+        
         const audioStream = receiver.subscribe(userId, { end: { behavior: EndBehaviorType.AfterSilence, duration: SILENCE_TIMEOUT }});
         const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2 });
         const pcmChunks = [];
+        
         audioStream.pipe(decoder).on('data', (c) => pcmChunks.push(c)).on('end', async () => {
             activeStreams.delete(userId);
             const pcmBuffer = Buffer.concat(pcmChunks);
@@ -83,25 +93,75 @@ function setupVoiceReceiver(connection) {
                 return;
             }
 
+            // Skicka ljudet till n8n för att trigga Grok
             await sendToN8nSatellit(Buffer.concat([createWavHeader(pcmBuffer.length), pcmBuffer]), userId, connection);
         });
     });
 }
 
+// --- ÄNDRAD FUNKTION: Hanterar text till realtids-röstström ---
 async function sendToN8nSatellit(wavBuffer, userId, connection) {
     try {
+        console.log(`[📡] Skickar ljud till n8n, väntar på Groks råa svar...`);
+        
+        // 1. Skicka din röst (.wav) till n8n. Notera att vi förväntar oss JSON-text tillbaka nu (inte arraybuffer)
         const response = await axios.post(N8N_WEBHOOK_URL, wavBuffer, {
             headers: { 
                 'Content-Type': 'audio/wav', 
                 'X-Channel-ID': TARGET_CHANNEL_ID, 
                 'X-User-ID': userId 
             },
-            responseType: 'arraybuffer' 
+            responseType: 'json' // Ändrat från arraybuffer till json för att ta emot text
         });
-        const audioPlayer = createAudioPlayer();
-        audioPlayer.play(createAudioResource(Readable.from(response.data)));
-        connection.subscribe(audioPlayer);
-    } catch (e) { console.error('[❌] N8N-anrop misslyckades:', e.message); }
+
+        // Hämta textsvaret från n8n (standardfältet från din Cassia_Brain)
+        const grokTextReply = response.data.output || response.data.text;
+        
+        if (!grokTextReply) {
+            console.log("[⚠️] n8n svarade, men inget textfält ('output' eller 'text') hittades.");
+            return;
+        }
+
+        // Lägg till dramatiska mikro-pauser för råa, explicita berättelser och svordomar
+        const formateradText = grokTextReply
+            .replace(/,/g, ', ...')
+            .replace(/\!/g, '! ...')
+            .replace(/\?/g, '? ...');
+
+        console.log(`[🎙️] Strömmar live från ElevenLabs: "${formateradText.substring(0, 40)}..."`);
+
+        // 2. Öppna en direkt realtidsström mot ElevenLabs med dina ocensurerade röstinställningar
+        const elevenLabsResponse = await axios({
+            method: 'post',
+            url: `https://elevenlabs.io{ELEVENLABS_VOICE_ID}/stream`,
+            data: {
+                text: formateradText,
+                model_id: "eleven_turbo_v2_5", // Din supersnabba modell från n8n
+                voice_settings: { 
+                    stability: 0.35,          // Sänkt för max rå inlevelse och känsla
+                    similarity_boost: 0.85,    // Högt så rösten inte sviktar vid grova ord
+                    style: 0.15,
+                    use_speaker_boost: true
+                }
+            },
+            headers: {
+                'xi-api-key': ELEVENLABS_API_KEY,
+                'accept': '*/*',
+                'content-type': 'application/json'
+            },
+            responseType: 'stream' // Strömmar rådata live direkt i kanalen
+        });
+
+        const resource = createAudioResource(elevenLabsResponse.data, {
+            inputType: StreamType.Arbitrary
+        });
+
+        // Spela upp ljudet live till dig utan att avbryta röstmottagningen
+        audioPlayer.play(resource);
+
+    } catch (e) { 
+        console.error('[❌] Fel i röstströmmen/n8n-anropet:', e.message); 
+    }
 }
 
 client.login(process.env.DISCORD_TOKEN);
